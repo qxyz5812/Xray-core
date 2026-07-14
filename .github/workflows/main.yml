@@ -1,0 +1,75 @@
+name: Build Xray for Merlin ARM
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Xray tag (例如 v25.7.26)"
+        required: true
+        default: "v25.7.26"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        goarm: [5, 6, 7]
+
+    steps:
+      - name: Checkout Xray
+        uses: actions/checkout@v4
+        with:
+          repository: XTLS/Xray-core
+          ref: ${{ github.event.inputs.version }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+
+      - name: Build
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: arm
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          echo "Building GOARM=${GOARM}"
+          go version
+          go mod download
+
+          go build \
+            -trimpath \
+            -buildvcs=false \
+            -ldflags="-s -w -buildid=" \
+            -o xray \
+            ./main
+
+      - name: Download geo files
+        run: |
+          wget -q -O geoip.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+          wget -q -O geosite.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+
+      - name: Package
+        run: |
+          mkdir package
+
+          cp xray package/
+          cp geoip.dat package/
+          cp geosite.dat package/
+
+          cd package
+
+          tar czf ../xray-${{ github.event.inputs.version }}-linux-arm-goarm${{ matrix.goarm }}.tar.gz *
+
+      - name: SHA256
+        run: |
+          sha256sum xray-${{ github.event.inputs.version }}-linux-arm-goarm${{ matrix.goarm }}.tar.gz \
+          > xray-${{ github.event.inputs.version }}-linux-arm-goarm${{ matrix.goarm }}.sha256
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: xray-goarm${{ matrix.goarm }}
+          path: |
+            xray-${{ github.event.inputs.version }}-linux-arm-goarm
